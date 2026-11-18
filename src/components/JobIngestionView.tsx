@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Database, PlusCircle, Upload } from 'lucide-react';
 import { api } from '../lib/api';
-import { EmploymentType, JobRecord, WorkMode } from '../shared/types';
+import { EmploymentType, JobRecord, RankedJobResult, WorkMode } from '../shared/types';
 
 const SAMPLE_JSON_BATCH = JSON.stringify(
   [
@@ -28,7 +28,11 @@ const SAMPLE_JSON_BATCH = JSON.stringify(
   2
 );
 
-export function JobIngestionView() {
+interface JobIngestionViewProps {
+  onNewMatchingJobs?: (jobs: RankedJobResult[]) => void;
+}
+
+export function JobIngestionView({ onNewMatchingJobs }: JobIngestionViewProps) {
   const [jobs, setJobs] = useState<Omit<JobRecord, 'embedding'>[]>([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<'single' | 'json' | 'csv'>('single');
@@ -98,6 +102,9 @@ export function JobIngestionView() {
           res.errors.length > 0 ? ` Errors: ${res.errors.join(' | ')}` : ''
         }`
       );
+      if (res.matchingNewJobs && res.matchingNewJobs.length > 0) {
+        onNewMatchingJobs?.(res.matchingNewJobs);
+      }
       if (mode === 'single' && res.inserted > 0) {
         setTitle('');
         setCompany('');

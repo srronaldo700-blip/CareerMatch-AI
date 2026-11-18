@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { collection, onSnapshot } from 'firebase/firestore';
 import {
   Activity,
   Bookmark,
@@ -10,6 +11,7 @@ import {
   Search,
 } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
+import { db } from './lib/firebase';
 import { api } from './lib/api';
 import {
   CandidatePreferences,
@@ -25,6 +27,7 @@ import { AgentAssistantView } from './components/AgentAssistantView';
 import { JobIngestionView } from './components/JobIngestionView';
 import { EvaluationLabView } from './components/EvaluationLabView';
 import { JobDetailModal } from './components/JobDetailModal';
+import { JobToastItem, ToastNotificationStack } from './components/ToastNotification';
 
 type NavTab = 'dashboard' | 'search' | 'agent' | 'resume' | 'saved' | 'ingest' | 'evaluation';
 
@@ -38,6 +41,72 @@ const NAV_ITEMS: Array<{ id: NavTab; label: string; icon: React.ComponentType<{ 
   { id: 'evaluation', label: 'Evaluation Lab', icon: Activity },
 ];
 
+function jobMatchesPreferences(
+  job: Record<string, unknown>,
+  prefs: CandidatePreferences | null
+): boolean {
+  if (job.isActive === false) return false;
+  if (!prefs) return true;
+
+  const location = String(job.location || '').toLowerCase();
+  const category = String(job.category || '').toLowerCase();
+  const title = String(job.title || '').toLowerCase();
+  const workMode = String(job.workMode || '').toLowerCase();
+  const employmentType = String(job.employmentType || '').toLowerCase();
+  const skills = [
+    ...(Array.isArray(job.requiredSkills) ? job.requiredSkills : []),
+    ...(Array.isArray(job.preferredSkills) ? job.preferredSkills : []),
+  ].map((s) => String(s).toLowerCase());
+
+  if (
+    prefs.excludedLocations.some((ex) => ex && location.includes(ex.toLowerCase())) ||
+    prefs.excludedCategories.some((ex) => ex && category.includes(ex.toLowerCase()))
+  ) {
+    return false;
+  }
+
+  if (prefs.workModes.length > 0 && !prefs.workModes.includes(workMode as CandidatePreferences['workModes'][number])) {
+    return false;
+  }
+
+  if (
+    prefs.employmentTypes.length > 0 &&
+    !prefs.employmentTypes.includes(employmentType as CandidatePreferences['employmentTypes'][number])
+  ) {
+    return false;
+  }
+
+  const hasSoftPrefs =
+    prefs.preferredRoles.length > 0 ||
+    prefs.preferredLocations.length > 0 ||
+    prefs.preferredTechStack.length > 0;
+
+  if (!hasSoftPrefs) return true;
+
+  const roleMatch =
+    prefs.preferredRoles.length > 0 &&
+    prefs.preferredRoles.some((r) => {
+      const term = r.toLowerCase().trim();
+      return term.length > 0 && (title.includes(term) || category.includes(term));
+    });
+
+  const locationMatch =
+    prefs.preferredLocations.length > 0 &&
+    prefs.preferredLocations.some((loc) => {
+      const term = loc.toLowerCase().trim();
+      return term.length > 0 && (location.includes(term) || (term === 'remote' && workMode === 'remote'));
+    });
+
+  const techMatch =
+    prefs.preferredTechStack.length > 0 &&
+    prefs.preferredTechStack.some((t) => {
+      const term = t.toLowerCase().trim();
+      return term.length > 0 && skills.some((s) => s.includes(term) || term.includes(s));
+    });
+
+  return roleMatch || locationMatch || techMatch;
+}
+
 export default function App() {
   const { user, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -46,6 +115,36 @@ export default function App() {
   const [savedJobs, setSavedJobs] = useState<(RankedJobResult & { notes?: string; savedAt?: string })[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
   const [selectedJob, setSelectedJob] = useState<RankedJobResult | null>(null);
+  const [toasts, setToasts] = useState<JobToastItem[]>([]);
+
+  const preferencesRef = useRef<CandidatePreferences | null>(null);
+  const notifiedJobIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const pushMatchingJobToasts = useCallback((jobs: RankedJobResult[]) => {
+    const newItems: JobToastItem[] = [];
+    for (const item of jobs) {
+      if (notifiedJobIdsRef.current.has(item.job.id)) continue;
+      notifiedJobIdsRef.current.add(item.job.id);
+      newItems.push({
+        id: `job-toast-${item.job.id}-${Date.now()}`,
+        title: item.job.title,
+        subtitle: `${item.job.company} · ${item.job.location} · ${item.job.workMode}`,
+        relevanceScore: item.relevanceScore,
+        rankedJob: item,
+      });
+    }
+    if (newItems.length > 0) {
+      setToasts((prev) => [...prev.slice(-3), ...newItems].slice(-4));
+    }
+  }, []);
 
   const loadUserData = useCallback(async () => {
     if (!user) return;
@@ -71,6 +170,64 @@ export default function App() {
       loadUserData();
     }
   }, [user, loadUserData]);
+
+  // Real-time Firestore listener for newly indexed jobs matching saved preferences
+  useEffect(() => {
+    if (!user) return;
+    let isInitialSnapshot = true;
+
+    const unsubscribe = onSnapshot(
+      collection(db, 'jobs'),
+      (snapshot) => {
+        if (isInitialSnapshot) {
+          isInitialSnapshot = false;
+          snapshot.docs.forEach((d) => notifiedJobIdsRef.current.add(d.id));
+          return;
+        }
+
+        const addedDocs = snapshot
+          .docChanges()
+          .filter((change) => change.type === 'added')
+          .map((change) => ({ id: change.doc.id, data: change.doc.data() as Record<string, unknown> }));
+
+        for (const { id, data } of addedDocs) {
+          if (notifiedJobIdsRef.current.has(id)) continue;
+          if (!jobMatchesPreferences(data, preferencesRef.current)) continue;
+
+          notifiedJobIdsRef.current.add(id);
+          api
+            .getJobDetails(id)
+            .then(({ result }) => {
+              setToasts((prev) => [
+                ...prev.slice(-3),
+                {
+                  id: `job-toast-${id}-${Date.now()}`,
+                  title: result.job.title,
+                  subtitle: `${result.job.company} · ${result.job.location} · ${result.job.workMode}`,
+                  relevanceScore: result.relevanceScore,
+                  rankedJob: result,
+                },
+              ]);
+            })
+            .catch(() => {
+              setToasts((prev) => [
+                ...prev.slice(-3),
+                {
+                  id: `job-toast-${id}-${Date.now()}`,
+                  title: String(data.title || 'New Matching Role'),
+                  subtitle: `${String(data.company || 'Company')} · ${String(data.location || 'Location')} · ${String(data.workMode || '')}`,
+                },
+              ]);
+            });
+        }
+      },
+      (err) => {
+        console.warn('Job index live listener paused:', err.message);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleToggleSave = async (jobId: string, currentlySaved: boolean) => {
     if (currentlySaved) {
@@ -231,7 +388,9 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'ingest' && <JobIngestionView />}
+          {activeTab === 'ingest' && (
+            <JobIngestionView onNewMatchingJobs={pushMatchingJobToasts} />
+          )}
 
           {activeTab === 'evaluation' && <EvaluationLabView />}
         </main>
@@ -242,6 +401,13 @@ export default function App() {
         item={selectedJob}
         onClose={() => setSelectedJob(null)}
         onToggleSave={handleToggleSave}
+      />
+
+      {/* Toast Notifications for Newly Indexed Matching Jobs */}
+      <ToastNotificationStack
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onInspectJob={setSelectedJob}
       />
     </div>
   );

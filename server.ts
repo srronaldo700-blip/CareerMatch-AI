@@ -331,7 +331,68 @@ async function startServer() {
         updateDuplicates: Boolean(updateDuplicates),
         computeEmbeddings: true,
       });
-      res.json(summary);
+
+      const { profile, prefs, savedJobIds } = await getUserContext(req.user!.uid, req.idToken!);
+      const matchingNewJobs = summary.records
+        .filter((job) => {
+          if (!job.isActive) return false;
+          if (!prefs) return true;
+          const locLower = job.location.toLowerCase();
+          const excludedLoc = (prefs.excludedLocations || []).some(
+            (ex) => ex.trim() && locLower.includes(ex.toLowerCase().trim())
+          );
+          if (excludedLoc) return false;
+          const catText = `${job.category} ${job.title}`.toLowerCase();
+          const excludedCat = (prefs.excludedCategories || []).some(
+            (ex) => ex.trim() && catText.includes(ex.toLowerCase().trim())
+          );
+          if (excludedCat) return false;
+
+          const hasWorkModePref = (prefs.workModes?.length || 0) > 0;
+          const hasLocPref = (prefs.preferredLocations?.length || 0) > 0;
+          const hasRolePref = (prefs.preferredRoles?.length || 0) > 0;
+          const hasStackPref = (prefs.preferredTechStack?.length || 0) > 0;
+
+          if (!hasWorkModePref && !hasLocPref && !hasRolePref && !hasStackPref) {
+            return true;
+          }
+
+          const modeMatch = !hasWorkModePref || prefs.workModes.includes(job.workMode);
+          const locMatch =
+            !hasLocPref ||
+            prefs.preferredLocations.some(
+              (l) =>
+                locLower.includes(l.toLowerCase().trim()) ||
+                (l.toLowerCase().trim() === 'remote' && job.workMode === 'remote')
+            );
+          const roleMatch =
+            !hasRolePref ||
+            prefs.preferredRoles.some((r) =>
+              catText.includes(r.toLowerCase().trim().split(' ')[0] || '')
+            );
+          const skillList = [...job.requiredSkills, ...job.preferredSkills].map((s) =>
+            s.toLowerCase()
+          );
+          const stackMatch =
+            !hasStackPref ||
+            prefs.preferredTechStack.some((s) => skillList.includes(s.toLowerCase().trim()));
+
+          return modeMatch && locMatch && (roleMatch || stackMatch);
+        })
+        .map((job) =>
+          scoreJobForCandidate({
+            job,
+            query: '',
+            mode: 'keyword',
+            semanticSim: 0.72,
+            keywordSim: 0.72,
+            profile,
+            prefs,
+            savedJobIds,
+          })
+        );
+
+      res.json({ ...summary, matchingNewJobs });
     } catch (error) {
       console.error('Job ingestion error:', error);
       res.status(400).json({

@@ -109,6 +109,7 @@ export const api = {
       duplicatesSkipped: number;
       invalidCount: number;
       errors: string[];
+      matchingNewJobs?: RankedJobResult[];
     }>('/api/jobs/ingest', {
       method: 'POST',
       body: JSON.stringify(payload),

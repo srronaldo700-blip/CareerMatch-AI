@@ -46,8 +46,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await signInWithPopup(auth, googleAuthProvider);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Sign-in failed. Please try again.';
-      setAuthError(msg);
+      const code = (error as { code?: string })?.code || '';
+      const rawMsg = error instanceof Error ? error.message : String(error);
+      if (code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        setAuthError(
+          `Sign-in blocked because "${host}" is not yet in Firebase Authentication → Settings → Authorized domains. Add "${host}" in your Firebase Console and retry.`
+        );
+      } else {
+        setAuthError(rawMsg || 'Sign-in failed. Please try again.');
+      }
     }
   };
 
