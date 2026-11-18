@@ -1,0 +1,193 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Authenticated CareerMatch AI candidate account.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 254 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "CandidateProfile": {
+      "title": "CandidateProfile",
+      "description": "Structured candidate profile extracted from resume and confirmed by the user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "headline": { "type": "string", "maxLength": 180 },
+        "experienceLevel": { "type": "string", "enum": ["intern", "fresher", "entry", "mid", "unknown"] },
+        "experienceMonths": { "type": "number" },
+        "education": { "type": "array" },
+        "skills": { "type": "array" },
+        "programmingLanguages": { "type": "array" },
+        "frameworksAndTools": { "type": "array" },
+        "projects": { "type": "array" },
+        "internships": { "type": "array" },
+        "preferredRoles": { "type": "array" },
+        "confirmed": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "fullName", "experienceLevel", "skills", "confirmed", "updatedAt"]
+    },
+    "CandidatePreferences": {
+      "title": "CandidatePreferences",
+      "description": "Persistent user-controlled job search preferences.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "preferredRoles": { "type": "array" },
+        "preferredLocations": { "type": "array" },
+        "workModes": { "type": "array" },
+        "preferredTechStack": { "type": "array" },
+        "excludedLocations": { "type": "array" },
+        "excludedCategories": { "type": "array" },
+        "employmentTypes": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "preferredRoles", "preferredLocations", "workModes", "updatedAt"]
+    },
+    "Resume": {
+      "title": "Resume",
+      "description": "Uploaded resume metadata, extracted text, and structured parse record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "mimeType": { "type": "string", "maxLength": 120 },
+        "fileSizeBytes": { "type": "number" },
+        "extractedText": { "type": "string", "maxLength": 40000 },
+        "parsedProfile": { "type": "object" },
+        "status": { "type": "string", "enum": ["parsed", "confirmed", "error"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "fileName", "mimeType", "fileSizeBytes", "status", "createdAt"]
+    },
+    "Job": {
+      "title": "Job",
+      "description": "Normalized job opportunity with skills and embedding vector.",
+      "type": "object",
+      "properties": {
+        "externalKey": { "type": "string", "maxLength": 160 },
+        "title": { "type": "string", "maxLength": 180 },
+        "company": { "type": "string", "maxLength": 140 },
+        "description": { "type": "string", "maxLength": 15000 },
+        "requiredSkills": { "type": "array" },
+        "preferredSkills": { "type": "array" },
+        "experienceLevel": { "type": "string", "enum": ["intern", "fresher", "entry", "mid"] },
+        "experienceRequirement": { "type": "string", "maxLength": 180 },
+        "location": { "type": "string", "maxLength": 140 },
+        "workMode": { "type": "string", "enum": ["remote", "hybrid", "onsite"] },
+        "employmentType": { "type": "string", "enum": ["internship", "full-time", "contract"] },
+        "category": { "type": "string", "maxLength": 80 },
+        "jobUrl": { "type": "string", "maxLength": 500 },
+        "postedDate": { "type": "string", "maxLength": 40 },
+        "source": { "type": "string", "maxLength": 120 },
+        "isSyntheticDemo": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "embedding": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["externalKey", "title", "company", "description", "requiredSkills", "experienceLevel", "location", "workMode", "employmentType", "source", "isActive", "updatedAt"]
+    },
+    "SavedJob": {
+      "title": "SavedJob",
+      "description": "Bookmark linking a candidate to a job opportunity.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "jobId": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "savedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "jobId", "savedAt"]
+    },
+    "SearchHistory": {
+      "title": "SearchHistory",
+      "description": "Audit log of hybrid search queries and latency.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "query": { "type": "string", "maxLength": 400 },
+        "mode": { "type": "string", "enum": ["hybrid", "semantic", "keyword"] },
+        "filters": { "type": "object" },
+        "resultCount": { "type": "number" },
+        "latencyMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "query", "mode", "resultCount", "latencyMs", "createdAt"]
+    },
+    "AgentSession": {
+      "title": "AgentSession",
+      "description": "Conversation history for the controlled job-search AI agent.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 160 },
+        "messages": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "messages", "updatedAt"]
+    },
+    "AgentToolLog": {
+      "title": "AgentToolLog",
+      "description": "Structured execution trace of an agent tool call.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "toolName": { "type": "string", "maxLength": 80 },
+        "args": { "type": "object" },
+        "success": { "type": "boolean" },
+        "validationError": { "type": "boolean" },
+        "latencyMs": { "type": "number" },
+        "errorMessage": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "sessionId", "toolName", "success", "latencyMs", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Private candidate account document keyed by Firebase Auth UID."
+    },
+    "/candidate_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/CandidateProfile" },
+      "description": "Structured candidate profile keyed by Firebase Auth UID."
+    },
+    "/candidate_preferences/{userId}": {
+      "schema": { "$ref": "#/entities/CandidatePreferences" },
+      "description": "Persistent user-controlled job preferences keyed by Firebase Auth UID."
+    },
+    "/resumes/{resumeId}": {
+      "schema": { "$ref": "#/entities/Resume" },
+      "description": "Uploaded resume parse records owned by a candidate."
+    },
+    "/jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/Job" },
+      "description": "Curated and ingested job index records readable by authenticated users."
+    },
+    "/saved_jobs/{savedJobId}": {
+      "schema": { "$ref": "#/entities/SavedJob" },
+      "description": "Candidate saved job bookmarks."
+    },
+    "/search_history/{historyId}": {
+      "schema": { "$ref": "#/entities/SearchHistory" },
+      "description": "Candidate search history and latency telemetry."
+    },
+    "/agent_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/AgentSession" },
+      "description": "Agentic job-search assistant sessions owned by a candidate."
+    },
+    "/agent_tool_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AgentToolLog" },
+      "description": "Tool-call audit logs owned by a candidate."
+    }
+  }
+}

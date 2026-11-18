@@ -1,0 +1,181 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 160 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'sopan.shinde24@spit.ac.in' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid == request.auth.uid && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 254
+        && data.displayName is string && data.displayName.size() <= 120
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidProfile(data) {
+      return data.keys().hasAll(['userId', 'fullName', 'experienceLevel', 'skills', 'confirmed', 'updatedAt'])
+        && data.keys().hasOnly([
+          'userId', 'fullName', 'headline', 'experienceLevel', 'experienceMonths',
+          'education', 'skills', 'programmingLanguages', 'frameworksAndTools',
+          'projects', 'internships', 'preferredRoles', 'confirmed', 'updatedAt'
+        ])
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.fullName is string && data.fullName.size() <= 120
+        && data.experienceLevel in ['intern', 'fresher', 'entry', 'mid', 'unknown']
+        && data.skills is list && data.skills.size() <= 80
+        && data.confirmed is bool
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidPreferences(data) {
+      return data.keys().hasAll(['userId', 'preferredRoles', 'preferredLocations', 'workModes', 'updatedAt'])
+        && data.keys().hasOnly([
+          'userId', 'preferredRoles', 'preferredLocations', 'workModes',
+          'preferredTechStack', 'excludedLocations', 'excludedCategories',
+          'employmentTypes', 'updatedAt'
+        ])
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.preferredRoles is list && data.preferredRoles.size() <= 20
+        && data.preferredLocations is list && data.preferredLocations.size() <= 20
+        && data.workModes is list && data.workModes.size() <= 5
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidSavedJob(data) {
+      return data.keys().hasAll(['userId', 'jobId', 'savedAt'])
+        && data.keys().hasOnly(['userId', 'jobId', 'notes', 'savedAt'])
+        && data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128
+        && data.jobId is string && isValidId(data.jobId)
+        && data.savedAt is string && data.savedAt.size() <= 40
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidJob(data) {
+      return data.keys().hasAll([
+          'externalKey', 'title', 'company', 'description', 'requiredSkills',
+          'experienceLevel', 'location', 'workMode', 'employmentType', 'source',
+          'isActive', 'updatedAt'
+        ])
+        && data.externalKey is string && data.externalKey.size() <= 160
+        && data.title is string && data.title.size() <= 180
+        && data.company is string && data.company.size() <= 140
+        && data.description is string && data.description.size() <= 15000
+        && data.requiredSkills is list && data.requiredSkills.size() <= 30
+        && data.experienceLevel in ['intern', 'fresher', 'entry', 'mid']
+        && data.workMode in ['remote', 'hybrid', 'onsite']
+        && data.employmentType in ['internship', 'full-time', 'contract']
+        && data.isActive is bool
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
+      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /candidate_profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow create: if isValidId(userId) && isOwner(userId) && isValidProfile(incoming());
+      allow update: if isValidId(userId) && isOwner(userId) && isValidProfile(incoming())
+        && incoming().userId == existing().userId;
+      allow delete: if isValidId(userId) && isOwner(userId);
+    }
+
+    match /candidate_preferences/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow create: if isValidId(userId) && isOwner(userId) && isValidPreferences(incoming());
+      allow update: if isValidId(userId) && isOwner(userId) && isValidPreferences(incoming())
+        && incoming().userId == existing().userId;
+      allow delete: if isValidId(userId) && isOwner(userId);
+    }
+
+    match /jobs/{jobId} {
+      allow read: if request.auth != null;
+      allow create, update: if isValidId(jobId) && request.auth != null;
+      allow delete: if isValidId(jobId) && isAdmin();
+    }
+
+    match /saved_jobs/{savedJobId} {
+      allow get: if isValidId(savedJobId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(savedJobId) && isValidSavedJob(incoming());
+      allow update: if isValidId(savedJobId) && isValidSavedJob(incoming())
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().jobId == existing().jobId;
+      allow delete: if isValidId(savedJobId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /resumes/{resumeId} {
+      allow get: if isValidId(resumeId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid
+        && incoming().fileName is string && incoming().fileName.size() <= 200;
+      allow update, delete: if isValidId(resumeId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /search_history/{historyId} {
+      allow get: if isValidId(historyId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid
+        && incoming().query is string && incoming().query.size() <= 400;
+      allow update, delete: if false;
+    }
+
+    match /agent_sessions/{sessionId} {
+      allow get: if isValidId(sessionId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if isValidId(sessionId) && isSignedIn() && incoming().userId == request.auth.uid
+        && incoming().title is string && incoming().title.size() <= 160;
+      allow delete: if isValidId(sessionId) && isSignedIn() && existing().userId == request.auth.uid;
+    }
+
+    match /agent_tool_logs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid
+        && incoming().toolName is string && incoming().toolName.size() <= 80;
+      allow update, delete: if false;
+    }
+
+    match /test/connection {
+      allow get: if isSignedIn();
+    }
+  }
+}
